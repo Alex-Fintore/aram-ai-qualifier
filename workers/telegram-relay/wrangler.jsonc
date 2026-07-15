@@ -1,0 +1,43 @@
+{
+  "name": "ai-qualifier-telegram-relay",
+  "main": "index.mjs",
+  "compatibility_date": "2026-07-15",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "ALLOWED_ORIGIN": "https://alex-fintore.github.io",
+    "EXPECTED_SOURCE": "GitHub Pages — AI-квалификатор",
+    "FORMSPREE_ENDPOINT": "https://formspree.io/f/xqeravoa"
+  },
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "2026071501",
+      "simple": {
+        "limit": 6,
+        "period": 60
+      }
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "TELEGRAM_QUEUE",
+        "queue": "ai-qualifier-telegram-notifications"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "ai-qualifier-telegram-notifications",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 5,
+        "retry_delay": 60,
+        "dead_letter_queue": "ai-qualifier-telegram-notifications-dlq",
+        "max_concurrency": 1
+      }
+    ]
+  }
+}

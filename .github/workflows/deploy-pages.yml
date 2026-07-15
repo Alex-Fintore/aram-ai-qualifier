@@ -19,7 +19,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      NEXT_PUBLIC_FORMSPREE_ENDPOINT: ${{ vars.NEXT_PUBLIC_FORMSPREE_ENDPOINT }}
+      NEXT_PUBLIC_SUBMISSION_ENDPOINT: ${{ vars.NEXT_PUBLIC_SUBMISSION_ENDPOINT }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6

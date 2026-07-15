@@ -24,10 +24,22 @@ import {
   type PrimaryBriefDraft,
 } from "./brief-model";
 
-const endpoint = process.env.NEXT_PUBLIC_FORMSPREE_ENDPOINT?.trim() ?? "";
-const endpointReady = /^https:\/\/formspree\.io\/f\/[a-zA-Z0-9]+$/.test(
-  endpoint,
-);
+const endpoint = process.env.NEXT_PUBLIC_SUBMISSION_ENDPOINT?.trim() ?? "";
+const endpointReady = (() => {
+  try {
+    const url = new URL(endpoint);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      url.pathname === "/submit"
+    );
+  } catch {
+    return false;
+  }
+})();
 
 type SubmitState = "idle" | "sending" | "success" | "error";
 

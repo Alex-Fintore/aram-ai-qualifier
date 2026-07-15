@@ -121,16 +121,23 @@ test("exports a hydratable vinext page with subpath-safe assets", async () => {
   }
 });
 
-test("workflow passes the public receiver endpoint into the Pages build", async () => {
-  const workflow = await readFile(
-    new URL("../.github/workflows/deploy-pages.yml", import.meta.url),
-    "utf8",
-  );
+test("workflow passes the public submission gateway into the Pages build", async () => {
+  const [workflow, briefForm] = await Promise.all([
+    readFile(
+      new URL("../.github/workflows/deploy-pages.yml", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../app/BriefForm.tsx", import.meta.url), "utf8"),
+  ]);
 
   assert.match(
     workflow,
-    /NEXT_PUBLIC_FORMSPREE_ENDPOINT:\s*\$\{\{\s*vars\.NEXT_PUBLIC_FORMSPREE_ENDPOINT\s*\}\}/,
+    /NEXT_PUBLIC_SUBMISSION_ENDPOINT:\s*\$\{\{\s*vars\.NEXT_PUBLIC_SUBMISSION_ENDPOINT\s*\}\}/,
   );
+  assert.doesNotMatch(workflow, /TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID/);
+  assert.match(briefForm, /process\.env\.NEXT_PUBLIC_SUBMISSION_ENDPOINT/);
+  assert.doesNotMatch(briefForm, /NEXT_PUBLIC_FORMSPREE_ENDPOINT/);
+  assert.match(briefForm, /new URL\(endpoint\)/);
   assert.match(workflow, /actions\/upload-pages-artifact@v4/);
   assert.match(workflow, /actions\/deploy-pages@v4/);
   assert.doesNotMatch(workflow, /include-hidden-files/);
