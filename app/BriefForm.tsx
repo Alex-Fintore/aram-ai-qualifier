@@ -5,19 +5,23 @@ import { useEffect, useState } from "react";
 import {
   briefSteps,
   funnelMetrics,
-  knownFacts,
   materialItems,
   pilotMetrics,
+  primaryQuestions,
   type BriefField,
 } from "./brief-content";
 import {
   DRAFT_KEY,
+  PRIMARY_DRAFT_KEY,
+  buildDeepSubmissionPayload,
   buildSubmissionPayload,
-  createInitialDraft,
+  createDeepDraftFromPrimary,
+  createInitialPrimaryDraft,
   restoreDraft,
-  serializeBrief,
-  validateIntro,
+  restorePrimaryDraft,
+  validatePrimary,
   type BriefDraft,
+  type PrimaryBriefDraft,
 } from "./brief-model";
 
 const endpoint = process.env.NEXT_PUBLIC_FORMSPREE_ENDPOINT?.trim() ?? "";
@@ -25,67 +29,25 @@ const endpointReady = /^https:\/\/formspree\.io\/f\/[a-zA-Z0-9]+$/.test(
   endpoint,
 );
 
-type FieldProps = {
-  field: BriefField;
-  value: string;
-  error?: boolean;
-  onChange: (value: string) => void;
-};
+type SubmitState = "idle" | "sending" | "success" | "error";
 
-function TextField({ field, value, error, onChange }: FieldProps) {
-  const describedBy = `${field.id}-prompt${error ? ` ${field.id}-error` : ""}`;
+async function postPayload(payload: Record<string, string>) {
+  const formData = new FormData();
+  Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: formData,
+  });
 
-  return (
-    <div
-      className={`field ${field.kind === "short" || field.kind === "date" ? "field--compact" : ""}`}
-    >
-      <label htmlFor={field.id} className="field__label">
-        {field.label}
-        {field.required ? <span className="required">обязательно</span> : null}
-      </label>
-      <p id={`${field.id}-prompt`} className="field__prompt">
-        {field.prompt}
-      </p>
-      {field.kind === "short" || field.kind === "date" ? (
-        <input
-          id={field.id}
-          name={field.id}
-          className="input"
-          type={field.kind === "date" ? "date" : "text"}
-          autoComplete={
-            field.id === "company"
-              ? "organization"
-              : field.id === "contact_name"
-                ? "name"
-                : "off"
-          }
-          value={value}
-          placeholder={field.placeholder}
-          aria-describedby={describedBy}
-          aria-invalid={error || undefined}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      ) : (
-        <textarea
-          id={field.id}
-          name={field.id}
-          className="textarea"
-          value={value}
-          placeholder={field.placeholder}
-          rows={5}
-          aria-describedby={describedBy}
-          aria-invalid={error || undefined}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      )}
-      {field.help ? <p className="field__help">{field.help}</p> : null}
-      {error ? (
-        <p id={`${field.id}-error`} className="field__error">
-          Заполните это поле.
-        </p>
-      ) : null}
-    </div>
-  );
+  if (response.ok) return;
+  if (response.status === 429) {
+    throw new Error("Слишком много попыток. Подождите несколько минут.");
+  }
+  if (response.status === 422) {
+    throw new Error("Проверьте контактные данные и попробуйте ещё раз.");
+  }
+  throw new Error("Не удалось отправить ответы. Черновик не потерян.");
 }
 
 function SiteHeader() {
@@ -97,7 +59,7 @@ function SiteHeader() {
         </span>
         <span className="brand__text">
           <strong>Квалификатор</strong>
-          <small>Бриф для пилота</small>
+          <small>Первичная оценка</small>
         </span>
       </a>
       <span className="confidentiality">
@@ -105,6 +67,127 @@ function SiteHeader() {
         Конфиденциально
       </span>
     </header>
+  );
+}
+
+function SaveStatus({ savedAt }: { savedAt: string | null }) {
+  return (
+    <span className="quick-save" aria-live="polite">
+      <span aria-hidden="true">✓</span>
+      {savedAt
+        ? `Черновик сохранён в ${new Date(savedAt).toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}`
+        : "Черновик сохраняется на этом устройстве"}
+    </span>
+  );
+}
+
+function PrimaryQuestion({
+  field,
+  index,
+  value,
+  error,
+  onChange,
+}: {
+  field: BriefField;
+  index: number;
+  value: string;
+  error: boolean;
+  onChange: (value: string) => void;
+}) {
+  const promptId = `${field.id}-prompt`;
+  const errorId = `${field.id}-error`;
+  const describedBy = error ? `${promptId} ${errorId}` : promptId;
+  const isShort = field.kind === "short";
+
+  return (
+    <section
+      className={`quick-question${isShort ? " quick-question--short" : ""}`}
+      data-brief-question="primary"
+    >
+      <div className="quick-question__number" aria-hidden="true">
+        {String(index + 1).padStart(2, "0")}
+      </div>
+      <div className="quick-question__body">
+        <label className="quick-question__label" htmlFor={field.id}>
+          {field.label}
+          <span className={field.required ? "question-tag" : "question-tag question-tag--optional"}>
+            {field.required ? "обязательно" : "можно пропустить"}
+          </span>
+        </label>
+        <p id={promptId} className="quick-question__prompt">
+          {field.prompt}
+        </p>
+        {isShort ? (
+          <input
+            id={field.id}
+            name={field.id}
+            className="input"
+            value={value}
+            placeholder={field.placeholder}
+            autoComplete={
+              field.id === "contact_name"
+                ? "name"
+                : field.id === "contact_channel"
+                  ? "email"
+                  : "off"
+            }
+            aria-describedby={describedBy}
+            aria-invalid={error || undefined}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        ) : (
+          <textarea
+            id={field.id}
+            name={field.id}
+            className="textarea textarea--quick"
+            value={value}
+            placeholder={field.placeholder}
+            rows={3}
+            aria-describedby={describedBy}
+            aria-invalid={error || undefined}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        )}
+        {error ? (
+          <p id={errorId} className="field__error">
+            Добавьте короткий ответ.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function DeepTextField({
+  field,
+  value,
+  onChange,
+}: {
+  field: BriefField;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="field" data-brief-question="deep">
+      <label htmlFor={`deep-${field.id}`} className="field__label">
+        {field.label}
+      </label>
+      <p id={`deep-${field.id}-prompt`} className="field__prompt">
+        {field.prompt}
+      </p>
+      <textarea
+        id={`deep-${field.id}`}
+        className="textarea"
+        value={value}
+        placeholder={field.placeholder}
+        rows={4}
+        aria-describedby={`deep-${field.id}-prompt`}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
   );
 }
 
@@ -116,45 +199,27 @@ function FunnelMetrics({
   onChange: (id: string, value: string) => void;
 }) {
   return (
-    <section className="subsection" aria-labelledby="funnel-metrics-title">
+    <section className="subsection" data-brief-question="deep">
       <div className="subsection__heading">
         <div>
-          <span className="subsection__number">1.3</span>
-          <h3 id="funnel-metrics-title">Базовые показатели воронки</h3>
+          <span className="subsection__number">Показатели</span>
+          <h3>Базовые показатели воронки</h3>
         </div>
-        <p>За последние 2–4 недели</p>
+        <p>Можно диапазоном или «нет данных»</p>
       </div>
       <div className="metric-list">
-        {funnelMetrics.map((metric) => {
-          const noData = values[metric.id] === "нет данных";
-          return (
-            <div className="metric-row" key={metric.id}>
-              <label htmlFor={metric.id} className="metric-row__label">
-                {metric.label}
-              </label>
-              <div className="metric-row__controls">
-                <input
-                  id={metric.id}
-                  className="input input--metric"
-                  value={noData ? "" : values[metric.id]}
-                  disabled={noData}
-                  placeholder={metric.placeholder}
-                  onChange={(event) => onChange(metric.id, event.target.value)}
-                />
-                <label className="mini-check">
-                  <input
-                    type="checkbox"
-                    checked={noData}
-                    onChange={(event) =>
-                      onChange(metric.id, event.target.checked ? "нет данных" : "")
-                    }
-                  />
-                  <span>нет данных</span>
-                </label>
-              </div>
-            </div>
-          );
-        })}
+        {funnelMetrics.map((metric) => (
+          <label className="metric-row" key={metric.id} htmlFor={`deep-${metric.id}`}>
+            <span className="metric-row__label">{metric.label}</span>
+            <input
+              id={`deep-${metric.id}`}
+              className="input input--metric"
+              value={values[metric.id]}
+              placeholder={metric.placeholder}
+              onChange={(event) => onChange(metric.id, event.target.value)}
+            />
+          </label>
+        ))}
       </div>
     </section>
   );
@@ -172,13 +237,13 @@ function PilotMetrics({
   ) => void;
 }) {
   return (
-    <section className="subsection" aria-labelledby="pilot-metrics-title">
+    <section className="subsection" data-brief-question="deep">
       <div className="subsection__heading">
         <div>
-          <span className="subsection__number">5.2</span>
-          <h3 id="pilot-metrics-title">Критерии успешности</h3>
+          <span className="subsection__number">Оценка пилота</span>
+          <h3>Критерии успешности</h3>
         </div>
-        <p>Если метрика не считается, укажите «нет данных»</p>
+        <p>Заполняйте только те метрики, которые уже считаете</p>
       </div>
       <div className="pilot-table" role="group" aria-label="Критерии пилота">
         <div className="pilot-table__head" aria-hidden="true">
@@ -245,13 +310,13 @@ function Materials({
   onChange: (id: string, key: "status" | "link", value: string) => void;
 }) {
   return (
-    <section className="subsection" aria-labelledby="materials-title">
+    <section className="subsection" data-brief-question="deep">
       <div className="subsection__heading">
         <div>
           <span className="subsection__number">Материалы</span>
-          <h3 id="materials-title">Что ускорит подготовку предложения</h3>
+          <h3>Что ускорит подготовку предложения</h3>
         </div>
-        <p>Большие файлы передадим отдельно через безопасный канал</p>
+        <p>Чувствительные файлы передадим отдельно</p>
       </div>
       <div className="materials-list">
         {materialItems.map((item, index) => (
@@ -272,8 +337,8 @@ function Materials({
                     }
                   >
                     <option value="">Не выбран</option>
-                    <option value="Приложено ссылкой">Приложено ссылкой</option>
                     <option value="Предоставим позже">Предоставим позже</option>
+                    <option value="Есть ссылка">Есть ссылка</option>
                     <option value="Отсутствует">Отсутствует</option>
                     <option value="Не применимо">Не применимо</option>
                   </select>
@@ -298,105 +363,225 @@ function Materials({
   );
 }
 
-function Review({
-  draft,
-  onEdit,
-}: {
-  draft: BriefDraft;
-  onEdit: (index: number) => void;
-}) {
-  return (
-    <div className="review">
-      <div className="review__intro">
-        <span className="eyebrow">Проверка перед отправкой</span>
-        <h2>Всё собрано в одном месте</h2>
-        <p>
-          Просмотрите ответы. Пустые поля допустимы — мы уточним их на следующем
-          шаге.
-        </p>
-      </div>
-      <div className="review__sections">
-        {briefSteps.map((step, index) => {
-          const answered = step.fields.filter(
-            (field) => draft.answers[field.id]?.trim(),
-          );
-          return (
-            <section className="review-card" key={step.id}>
-              <div className="review-card__head">
-                <div>
-                  <span>{step.number}</span>
-                  <h3>{step.title}</h3>
-                </div>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => onEdit(index)}
-                >
-                  Изменить
-                </button>
-              </div>
-              {answered.length ? (
-                <dl>
-                  {answered.map((field) => (
-                    <div key={field.id}>
-                      <dt>{field.label}</dt>
-                      <dd>{draft.answers[field.id]}</dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p className="review-card__empty">Ответов пока нет.</p>
-              )}
-            </section>
-          );
-        })}
-      </div>
-    </div>
+function DeepDiveForm({ primary }: { primary: PrimaryBriefDraft }) {
+  const [draft, setDraft] = useState<BriefDraft>(() =>
+    createDeepDraftFromPrimary(primary),
   );
-}
-
-export function BriefForm() {
-  const [draft, setDraft] = useState<BriefDraft>(() => createInitialDraft());
   const [hydrated, setHydrated] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [submitState, setSubmitState] = useState<
-    "idle" | "sending" | "success" | "error"
-  >("idle");
+  const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [submitMessage, setSubmitMessage] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const restored = restoreDraft(window.localStorage.getItem(DRAFT_KEY));
+      const belongsToCurrentBrief =
+        restored?.answers.company?.trim() === primary.answers.company?.trim() &&
+        restored?.answers.contact_channel?.trim() ===
+          primary.answers.contact_channel?.trim();
+
+      if (restored && belongsToCurrentBrief) {
+        setDraft(restored);
+        setLastSaved(restored.savedAt);
+      }
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [primary.answers.company, primary.answers.contact_channel]);
+
+  useEffect(() => {
+    if (!hydrated || submitState === "success") return;
+    const timer = window.setTimeout(() => {
+      const savedAt = new Date().toISOString();
+      window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, savedAt }));
+      setLastSaved(savedAt);
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [draft, hydrated, submitState]);
+
+  const setAnswer = (id: string, value: string) =>
+    setDraft((current) => ({
+      ...current,
+      answers: { ...current.answers, [id]: value },
+    }));
+
+  const setFunnel = (id: string, value: string) =>
+    setDraft((current) => ({
+      ...current,
+      funnel: { ...current.funnel, [id]: value },
+    }));
+
+  const setPilot = (
+    id: string,
+    key: "current" | "target" | "priority",
+    value: string,
+  ) =>
+    setDraft((current) => ({
+      ...current,
+      pilot: {
+        ...current.pilot,
+        [id]: { ...current.pilot[id], [key]: value },
+      },
+    }));
+
+  const setMaterial = (
+    id: string,
+    key: "status" | "link",
+    value: string,
+  ) =>
+    setDraft((current) => ({
+      ...current,
+      materials: {
+        ...current.materials,
+        [id]: { ...current.materials[id], [key]: value },
+      },
+    }));
+
+  const submitDeep = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitMessage("");
+
+    if (!endpointReady) {
+      setSubmitState("error");
+      setSubmitMessage("Канал приёма ответов ещё подключается. Черновик сохранён.");
+      return;
+    }
+
+    setSubmitState("sending");
+    try {
+      await postPayload(buildDeepSubmissionPayload(draft));
+      window.localStorage.removeItem(DRAFT_KEY);
+      setSubmitState("success");
+    } catch (error) {
+      setSubmitState("error");
+      setSubmitMessage(
+        error instanceof Error ? error.message : "Не удалось отправить дополнение.",
+      );
+    }
+  };
+
+  if (submitState === "success") {
+    return (
+      <section className="deep-complete" aria-live="polite">
+        <span className="success-panel__mark" aria-hidden="true">
+          ✓
+        </span>
+        <div>
+          <span className="eyebrow">Дополнение отправлено</span>
+          <h2>Спасибо, теперь оценка будет точнее</h2>
+          <p>Дополнительные сведения помогут точнее определить состав пилота, сроки и бюджет.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section id="deep-brief" className="deep-brief" aria-labelledby="deep-title">
+      <header className="deep-brief__header">
+        <span className="eyebrow">По желанию</span>
+        <h2 id="deep-title">Углублённый бриф</h2>
+        <p>
+          Первые ответы уже у нас. Заполняйте только те детали, которые известны сейчас —
+          остальное обсудим на встрече.
+        </p>
+      </header>
+
+      <div className="deep-privacy">
+        Не добавляйте персональные данные клиентов, записи разговоров, пароли или ключи доступа.
+      </div>
+
+      <form className="deep-form" onSubmit={submitDeep}>
+        {briefSteps.slice(1).map((step, index) => (
+          <details className="deep-section" key={step.id} open={index === 0}>
+            <summary>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <span>
+                <strong>{step.title}</strong>
+                <small>{step.description}</small>
+              </span>
+            </summary>
+            <div className="deep-section__content">
+              <div className="fields">
+                {step.fields.map((field) => (
+                  <DeepTextField
+                    key={field.id}
+                    field={field}
+                    value={draft.answers[field.id]}
+                    onChange={(value) => setAnswer(field.id, value)}
+                  />
+                ))}
+              </div>
+              {step.id === "business" ? (
+                <FunnelMetrics values={draft.funnel} onChange={setFunnel} />
+              ) : null}
+              {step.id === "pilot" ? (
+                <>
+                  <PilotMetrics values={draft.pilot} onChange={setPilot} />
+                  <Materials values={draft.materials} onChange={setMaterial} />
+                </>
+              ) : null}
+            </div>
+          </details>
+        ))}
+
+        {submitMessage ? (
+          <div className="submit-message" role="alert">
+            {submitMessage}
+          </div>
+        ) : null}
+
+        <footer className="deep-form__footer">
+          <SaveStatus savedAt={lastSaved} />
+          <button
+            type="submit"
+            className="button"
+            disabled={!endpointReady || submitState === "sending"}
+          >
+            {submitState === "sending" ? "Отправляем…" : "Отправить дополнительные данные"}
+          </button>
+        </footer>
+      </form>
+    </section>
+  );
+}
+
+export function BriefForm() {
+  const [draft, setDraft] = useState<PrimaryBriefDraft>(() =>
+    createInitialPrimaryDraft(),
+  );
+  const [hydrated, setHydrated] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [submitState, setSubmitState] = useState<SubmitState>("idle");
+  const [submitMessage, setSubmitMessage] = useState("");
+  const [showDeep, setShowDeep] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const restored = restorePrimaryDraft(
+        window.localStorage.getItem(PRIMARY_DRAFT_KEY),
+      );
       if (restored) {
         setDraft(restored);
         setLastSaved(restored.savedAt);
       }
       setHydrated(true);
     }, 0);
-
     return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     if (!hydrated || submitState === "success") return;
-
     const timer = window.setTimeout(() => {
       const savedAt = new Date().toISOString();
       window.localStorage.setItem(
-        DRAFT_KEY,
+        PRIMARY_DRAFT_KEY,
         JSON.stringify({ ...draft, savedAt }),
       );
       setLastSaved(savedAt);
     }, 450);
-
     return () => window.clearTimeout(timer);
   }, [draft, hydrated, submitState]);
-
-  const stepIndex = draft.currentStep;
-  const isReview = stepIndex === briefSteps.length;
-  const activeStep = briefSteps[Math.min(stepIndex, briefSteps.length - 1)];
-  const progress = Math.round(((stepIndex + 1) / (briefSteps.length + 1)) * 100);
 
   const setAnswer = (id: string, value: string) => {
     setDraft((current) => ({
@@ -406,87 +591,14 @@ export function BriefForm() {
     setErrors((current) => current.filter((item) => item !== id));
   };
 
-  const setFunnel = (id: string, value: string) => {
-    setDraft((current) => ({
-      ...current,
-      funnel: { ...current.funnel, [id]: value },
-    }));
-  };
-
-  const setPilot = (
-    id: string,
-    key: "current" | "target" | "priority",
-    value: string,
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      pilot: {
-        ...current.pilot,
-        [id]: { ...current.pilot[id], [key]: value },
-      },
-    }));
-  };
-
-  const setMaterial = (
-    id: string,
-    key: "status" | "link",
-    value: string,
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      materials: {
-        ...current.materials,
-        [id]: { ...current.materials[id], [key]: value },
-      },
-    }));
-  };
-
-  const moveTo = (nextStep: number) => {
-    setErrors([]);
-    setDraft((current) => ({ ...current, currentStep: nextStep }));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const next = () => {
-    if (stepIndex === 0) {
-      const missing = validateIntro(draft);
-      if (missing.length) {
-        setErrors(missing);
-        window.setTimeout(() => {
-          document.getElementById(missing[0])?.focus();
-        }, 0);
-        return;
-      }
-    }
-    moveTo(Math.min(stepIndex + 1, briefSteps.length));
-  };
-
-  const downloadCopy = () => {
-    const safeCompany = (draft.answers.company || "company")
-      .toLowerCase()
-      .replace(/[^a-zа-яё0-9]+/gi, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 48);
-    const file = new Blob([serializeBrief(draft)], {
-      type: "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(file);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `ai-qualifier-brief-${safeCompany || "company"}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  const submitPrimary = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitMessage("");
 
-    if (!endpointReady) {
-      setSubmitState("error");
-      setSubmitMessage(
-        "Канал приёма ответов ещё подключается. Скачайте копию — черновик также сохранён на этом устройстве.",
-      );
+    const missing = validatePrimary(draft);
+    if (missing.length) {
+      setErrors(missing);
+      window.setTimeout(() => document.getElementById(missing[0])?.focus(), 0);
       return;
     }
 
@@ -499,448 +611,229 @@ export function BriefForm() {
       return;
     }
 
+    if (!endpointReady) {
+      setSubmitState("error");
+      setSubmitMessage("Канал приёма ответов ещё подключается. Черновик сохранён.");
+      return;
+    }
+
     setSubmitState("sending");
     try {
-      const payload = buildSubmissionPayload(draft);
-      const formData = new FormData();
-      Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { Accept: "application/json" },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error("Слишком много попыток. Подождите несколько минут.");
-        }
-        if (response.status === 422) {
-          throw new Error("Проверьте контактные данные и попробуйте ещё раз.");
-        }
-        throw new Error("Не удалось отправить бриф. Черновик не потерян.");
-      }
-
-      window.localStorage.removeItem(DRAFT_KEY);
+      await postPayload(buildSubmissionPayload(draft));
+      window.localStorage.removeItem(PRIMARY_DRAFT_KEY);
       setSubmitState("success");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
       setSubmitState("error");
       setSubmitMessage(
-        error instanceof Error
-          ? error.message
-          : "Не удалось отправить бриф. Черновик не потерян.",
+        error instanceof Error ? error.message : "Не удалось отправить ответы.",
       );
     }
   };
 
-  const reset = () => {
-    window.localStorage.removeItem(DRAFT_KEY);
-    setDraft(createInitialDraft());
-    setSubmitState("idle");
-    setSubmitMessage("");
-    setLastSaved(null);
-  };
-
   if (submitState === "success") {
     return (
-      <div id="top" className="page-shell page-shell--success">
+      <div id="top" className="page-shell page-shell--after-submit">
         <SiteHeader />
-        <main className="success-panel" aria-live="polite">
-          <div className="success-panel__mark" aria-hidden="true">
-            ✓
-          </div>
-          <span className="eyebrow">Бриф отправлен</span>
-          <h1>Спасибо — ответы получены</h1>
-          <p>
-            Мы изучим материалы, уточним недостающие данные и подготовим вариант
-            пилота с оценкой сроков и бюджета.
-          </p>
-          <div className="success-panel__actions">
-            <button type="button" className="button button--secondary" onClick={downloadCopy}>
-              Скачать свою копию
-            </button>
-            <button type="button" className="text-button" onClick={reset}>
-              Заполнить новый бриф
-            </button>
-          </div>
+        <main className="after-submit">
+          <section className="primary-success" aria-live="polite">
+            <div className="success-panel__mark" aria-hidden="true">
+              ✓
+            </div>
+            <div>
+              <span className="eyebrow">Основные данные отправлены</span>
+              <h1>Спасибо — этого достаточно для первичного разбора</h1>
+              <p>
+                Мы сможем предложить возможный сценарий решения, формат пилота и
+                предварительный ориентир по срокам и стоимости.
+              </p>
+            </div>
+          </section>
+
+          {!showDeep ? (
+            <section className="deep-offer" aria-labelledby="deep-offer-title">
+              <div>
+                <span className="eyebrow">Необязательно</span>
+                <h2 id="deep-offer-title">Хотите получить более точную оценку?</h2>
+                <p>
+                  Можно сразу дополнить сведения об интеграциях, экономике,
+                  безопасности и критериях пилота. Первые ответы уже получены —
+                  ничего повторять не придётся.
+                </p>
+              </div>
+              <div className="deep-offer__action">
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => {
+                    setShowDeep(true);
+                    window.setTimeout(
+                      () => document.getElementById("deep-brief")?.scrollIntoView({ behavior: "smooth" }),
+                      0,
+                    );
+                  }}
+                >
+                  Уточнить детали
+                  <span aria-hidden="true">→</span>
+                </button>
+                <small>Или просто закройте страницу — основные данные уже у нас.</small>
+              </div>
+            </section>
+          ) : (
+            <DeepDiveForm primary={draft} />
+          )}
         </main>
+        <footer className="site-footer">
+          <span>AI-квалификатор входящих лидов</span>
+          <span>Первичные ответы уже сохранены</span>
+        </footer>
       </div>
     );
   }
 
   return (
-    <div id="top" className="page-shell">
+    <div id="top" className="page-shell page-shell--quick">
       <SiteHeader />
       <main>
-        <section className="hero" aria-labelledby="brief-title">
-          <div className="hero__copy">
-            <span className="eyebrow">Бриф для подготовки пилота</span>
+        <section className="quick-hero" aria-labelledby="brief-title">
+          <div className="quick-hero__copy">
+            <span className="eyebrow">Первичное знакомство</span>
             <h1 id="brief-title">
-              AI-квалификатор
-              <span>входящих лидов</span>
+              Короткий бриф
+              <span>для оценки AI-квалификатора</span>
             </h1>
             <p>
-              Помогите нам понять текущую воронку, сценарий звонка и технический
-              контур. На основе ответов мы подготовим варианты пилота, сроки и
-              бюджет.
+              Ответьте на главное — этого хватит, чтобы мы подготовили первый
+              разбор задачи и ориентир по пилоту. Точные цифры не обязательны.
             </p>
           </div>
-          <div className="hero__meta" aria-label="Информация о заполнении">
+          <div className="quick-hero__meta" aria-label="Информация о заполнении">
             <div>
-              <strong>15–20</strong>
-              <span>минут на заполнение</span>
+              <strong>5–7 минут</strong>
+              <span>на всю форму</span>
             </div>
             <div>
-              <strong>6</strong>
-              <span>коротких разделов</span>
+              <strong>10 вопросов</strong>
+              <span>на одной странице</span>
             </div>
-            <p>
-              Можно отвечать тезисно и возвращаться позже. Если цифры нет,
-              укажите диапазон или «нет данных».
-            </p>
+            <p>Если ответа пока нет, оставьте необязательное поле пустым.</p>
           </div>
         </section>
 
-        <div className="privacy-strip">
-          <span className="privacy-strip__icon" aria-hidden="true">
-            !
-          </span>
-          <p>
-            <strong>Не указывайте персональные данные клиентов.</strong> Ссылки
-            допустимы, а записи звонков и другие чувствительные файлы мы запросим
-            отдельно через безопасный канал.
-          </p>
-        </div>
-
-        <section className="workspace" aria-label="Анкета">
-          <aside className="stepper">
-            <div className="stepper__progress">
-              <div className="stepper__progress-copy">
-                <span>Прогресс</span>
-                <strong>{progress}%</strong>
-              </div>
-              <div className="progress-track" aria-hidden="true">
-                <span style={{ width: `${progress}%` }} />
-              </div>
+        <form className="quick-form" onSubmit={submitPrimary} noValidate>
+          <header className="quick-form__header">
+            <div>
+              <span className="eyebrow">Расскажите главное</span>
+              <h2>Без таблиц, ползунков и длинных инструкций</h2>
             </div>
-            <nav aria-label="Разделы брифа">
-              <ol>
-                {briefSteps.map((step, index) => (
-                  <li key={step.id}>
-                    <button
-                      type="button"
-                      className={index === stepIndex ? "is-active" : ""}
-                      aria-current={index === stepIndex ? "step" : undefined}
-                      onClick={() => moveTo(index)}
-                    >
-                      <span>{step.number}</span>
-                      <span>
-                        <strong>{step.title}</strong>
-                        <small>{step.eyebrow}</small>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-                <li>
-                  <button
-                    type="button"
-                    className={isReview ? "is-active" : ""}
-                    aria-current={isReview ? "step" : undefined}
-                    onClick={() => {
-                      const missing = validateIntro(draft);
-                      if (missing.length) {
-                        moveTo(0);
-                        setErrors(missing);
-                      } else {
-                        moveTo(briefSteps.length);
-                      }
-                    }}
-                  >
-                    <span>07</span>
-                    <span>
-                      <strong>Проверка</strong>
-                      <small>Перед отправкой</small>
-                    </span>
-                  </button>
-                </li>
-              </ol>
-            </nav>
-            <div className="save-state" aria-live="polite">
-              <span className="save-state__mark" aria-hidden="true">
-                ✓
-              </span>
-              <span>
-                <strong>Черновик сохраняется на этом устройстве</strong>
-                <small>
-                  {lastSaved
-                    ? `Сохранено ${new Date(lastSaved).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
-                    : "Начните заполнять — ответы не потеряются"}
-                </small>
-              </span>
+            <SaveStatus savedAt={lastSaved} />
+          </header>
+
+          {errors.length ? (
+            <div className="error-summary" role="alert">
+              Заполните отмеченные вопросы — можно ответить буквально одной фразой.
             </div>
-          </aside>
+          ) : null}
 
-          <form className="brief-card" onSubmit={submit} noValidate>
-            {!isReview ? (
-              <>
-                <header className="brief-card__header">
-                  <div>
-                    <span className="eyebrow">{activeStep.eyebrow}</span>
-                    <span className="brief-card__number">{activeStep.number}</span>
-                  </div>
-                  <h2>{activeStep.title}</h2>
-                  <p>{activeStep.description}</p>
-                </header>
+          <div className="quick-question-grid">
+            {primaryQuestions.map((question, index) => (
+              <PrimaryQuestion
+                key={question.id}
+                field={question}
+                index={index}
+                value={draft.answers[question.id]}
+                error={errors.includes(question.id)}
+                onChange={(value) => setAnswer(question.id, value)}
+              />
+            ))}
+          </div>
 
-                <div className="brief-card__content">
-                  {errors.length ? (
-                    <div className="error-summary" role="alert">
-                      Заполните обязательные поля, чтобы продолжить.
-                    </div>
-                  ) : null}
-
-                  {stepIndex === 4 ? (
-                    <div className="legal-note">
-                      <strong>Важно</strong>
-                      <p>
-                        Ответы нужны для архитектурной оценки и не заменяют
-                        заключение юриста или специалиста по информационной
-                        безопасности вашей компании.
-                      </p>
-                    </div>
-                  ) : null}
-
-                  <div
-                    className={`fields ${stepIndex === 0 ? "fields--intro" : ""}`}
-                  >
-                    {activeStep.fields.map((field) => (
-                      <TextField
-                        key={field.id}
-                        field={field}
-                        value={draft.answers[field.id]}
-                        error={errors.includes(field.id)}
-                        onChange={(value) => setAnswer(field.id, value)}
-                      />
-                    ))}
-                  </div>
-
-                  {stepIndex === 0 ? (
-                    <section
-                      className="known-card"
-                      aria-labelledby="known-facts-title"
-                    >
-                      <div className="known-card__header">
-                        <span className="eyebrow">Проверьте гипотезы</span>
-                        <h3 id="known-facts-title">
-                          Что уже известно из обсуждения
-                        </h3>
-                      </div>
-                      <ul>
-                        {knownFacts.map((fact) => (
-                          <li key={fact}>
-                            <span aria-hidden="true">✓</span>
-                            {fact}
-                          </li>
-                        ))}
-                      </ul>
-                      <fieldset
-                        id="known_status"
-                        className={
-                          errors.includes("known_status")
-                            ? "choice-group has-error"
-                            : "choice-group"
-                        }
-                      >
-                        <legend>
-                          Всё верно или нужны исправления?
-                          <span className="required">обязательно</span>
-                        </legend>
-                        <label>
-                          <input
-                            type="radio"
-                            name="known_status"
-                            value="confirmed"
-                            checked={draft.answers.known_status === "confirmed"}
-                            onChange={(event) =>
-                              setAnswer("known_status", event.target.value)
-                            }
-                          />
-                          <span>
-                            <strong>Подтверждаю</strong>
-                            <small>Исходные данные можно использовать</small>
-                          </span>
-                        </label>
-                        <label>
-                          <input
-                            type="radio"
-                            name="known_status"
-                            value="changes"
-                            checked={draft.answers.known_status === "changes"}
-                            onChange={(event) =>
-                              setAnswer("known_status", event.target.value)
-                            }
-                          />
-                          <span>
-                            <strong>Нужны исправления</strong>
-                            <small>Укажу изменения ниже</small>
-                          </span>
-                        </label>
-                      </fieldset>
-                      {draft.answers.known_status === "changes" ? (
-                        <div className="field">
-                          <label
-                            className="field__label"
-                            htmlFor="known_corrections"
-                          >
-                            Исправления и дополнения
-                          </label>
-                          <textarea
-                            id="known_corrections"
-                            className="textarea"
-                            rows={4}
-                            value={draft.answers.known_corrections}
-                            aria-invalid={
-                              errors.includes("known_corrections") || undefined
-                            }
-                            placeholder="Что нужно изменить в исходных данных?"
-                            onChange={(event) =>
-                              setAnswer("known_corrections", event.target.value)
-                            }
-                          />
-                        </div>
-                      ) : null}
-                    </section>
-                  ) : null}
-
-                  {stepIndex === 1 ? (
-                    <FunnelMetrics values={draft.funnel} onChange={setFunnel} />
-                  ) : null}
-
-                  {stepIndex === 5 ? (
-                    <>
-                      <PilotMetrics values={draft.pilot} onChange={setPilot} />
-                      <Materials
-                        values={draft.materials}
-                        onChange={setMaterial}
-                      />
-                    </>
-                  ) : null}
-                </div>
-              </>
-            ) : (
-              <div className="brief-card__content brief-card__content--review">
-                <Review draft={draft} onEdit={moveTo} />
-
-                <div className="confirmation-box">
-                  <h3>Перед отправкой</h3>
-                  <label className="confirmation-check">
-                    <input
-                      type="checkbox"
-                      checked={draft.confirmations.noClientPersonalData}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setDraft((current) => ({
-                          ...current,
-                          confirmations: {
-                            ...current.confirmations,
-                            noClientPersonalData: event.target.checked,
-                          },
-                        }))
-                      }
-                    />
-                    <span>
-                      В ответах и ссылках нет персональных данных клиентов,
-                      паролей, ключей доступа и платёжной информации.
-                    </span>
-                  </label>
-                  <label className="confirmation-check">
-                    <input
-                      type="checkbox"
-                      checked={draft.confirmations.senderConsent}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setDraft((current) => ({
-                          ...current,
-                          confirmations: {
-                            ...current.confirmations,
-                            senderConsent: event.target.checked,
-                          },
-                        }))
-                      }
-                    />
-                    <span>
-                      Разрешаю использовать мои контактные данные только для
-                      связи по этому проекту.
-                    </span>
-                  </label>
-                </div>
-
-                {!endpointReady ? (
-                  <div className="channel-note">
-                    <span aria-hidden="true">i</span>
-                    <p>
-                      <strong>Канал приёма ответов подключается.</strong> Пока
-                      можно скачать готовый бриф. Черновик останется на этом
-                      устройстве.
-                    </p>
-                  </div>
-                ) : null}
-
-                {submitMessage ? (
-                  <div className="submit-message" role="alert">
-                    {submitMessage}
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            <footer className="brief-card__footer">
+          <section className="quick-confirmations" aria-labelledby="confirm-title">
+            <div>
+              <span className="quick-confirmations__mark" aria-hidden="true">!</span>
               <div>
-                {stepIndex > 0 ? (
-                  <button
-                    type="button"
-                    className="button button--secondary"
-                    onClick={() => moveTo(stepIndex - 1)}
-                  >
-                    Назад
-                  </button>
-                ) : (
-                  <span className="footer-hint">Обязательные поля отмечены</span>
-                )}
+                <h3 id="confirm-title">Перед отправкой</h3>
+                <p>Чувствительные материалы мы запросим отдельно через безопасный канал.</p>
               </div>
-              <div className="brief-card__footer-actions">
-                <button
-                  type="button"
-                  className="text-button text-button--download"
-                  onClick={downloadCopy}
-                >
-                  Скачать копию
-                </button>
-                {!isReview ? (
-                  <button type="button" className="button" onClick={next}>
-                    {stepIndex === briefSteps.length - 1
-                      ? "Проверить ответы"
-                      : "Сохранить и продолжить"}
-                    <span aria-hidden="true">→</span>
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    className="button"
-                    disabled={!endpointReady || submitState === "sending"}
-                  >
-                    {submitState === "sending"
-                      ? "Отправляем…"
-                      : endpointReady
-                        ? "Отправить бриф"
-                        : "Отправка подключается"}
-                  </button>
-                )}
-              </div>
-            </footer>
-          </form>
-        </section>
+            </div>
+            <label className="confirmation-check">
+              <input
+                type="checkbox"
+                checked={draft.confirmations.noClientPersonalData}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setDraft((current) => ({
+                    ...current,
+                    confirmations: {
+                      ...current.confirmations,
+                      noClientPersonalData: event.target.checked,
+                    },
+                  }))
+                }
+              />
+              <span>
+                В ответах нет персональных данных клиентов, записей разговоров,
+                паролей и ключей доступа.
+              </span>
+            </label>
+            <label className="confirmation-check">
+              <input
+                type="checkbox"
+                checked={draft.confirmations.senderConsent}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setDraft((current) => ({
+                    ...current,
+                    confirmations: {
+                      ...current.confirmations,
+                      senderConsent: event.target.checked,
+                    },
+                  }))
+                }
+              />
+              <span>
+                Разрешаю использовать мои контактные данные для подготовки оценки
+                и связи по этому проекту.
+              </span>
+            </label>
+          </section>
+
+          {!endpointReady ? (
+            <div className="channel-note">
+              <span aria-hidden="true">i</span>
+              <p>
+                <strong>Канал приёма ответов подключается.</strong> Черновик сохранится
+                на этом устройстве.
+              </p>
+            </div>
+          ) : null}
+
+          {submitMessage ? (
+            <div className="submit-message" role="alert">
+              {submitMessage}
+            </div>
+          ) : null}
+
+          <footer className="quick-form__footer">
+            <div>
+              <strong>После отправки</strong>
+              <span>можно будет необязательно добавить детали для более точной оценки</span>
+            </div>
+            <button
+              type="submit"
+              className="button button--submit-primary"
+              disabled={!endpointReady || submitState === "sending"}
+            >
+              {submitState === "sending"
+                ? "Отправляем…"
+                : endpointReady
+                  ? "Отправить на первичную оценку"
+                  : "Отправка подключается"}
+            </button>
+          </footer>
+        </form>
       </main>
       <footer className="site-footer">
         <span>AI-квалификатор входящих лидов</span>
-        <span>После ответов подготовим варианты пилота, сроки и бюджет</span>
+        <span>Первичный разбор без обязательного длинного брифа</span>
       </footer>
     </div>
   );

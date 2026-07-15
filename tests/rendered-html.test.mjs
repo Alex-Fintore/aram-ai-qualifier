@@ -34,15 +34,17 @@ test("server-renders the customer brief rather than the starter", async () => {
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ru"/i);
   assert.match(html, /<title>AI-квалификатор входящих лидов<\/title>/i);
-  assert.match(html, /Бриф для подготовки пилота/i);
+  assert.match(html, /Короткий бриф/i);
+  assert.match(html, /10 вопросов/i);
   assert.match(html, /Черновик сохраняется на этом устройстве/i);
-  assert.match(html, /Не указывайте персональные данные клиентов/i);
-  assert.match(html, /Что уже известно из обсуждения/i);
+  assert.match(html, /Чувствительные материалы мы запросим отдельно/i);
+  assert.match(html, /Отправ(?:ить на первичную оценку|ка подключается)/i);
+  assert.doesNotMatch(html, /Критерии успешности/i);
   assert.doesNotMatch(html, developmentPreviewMeta);
   assert.doesNotMatch(html, /Codex is working|Your site is taking shape/i);
 });
 
-test("ships the complete six-part questionnaire and removes starter assets", async () => {
+test("ships ten primary questions plus an optional detailed questionnaire", async () => {
   const [content, form, page, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/brief-content.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/BriefForm.tsx", import.meta.url), "utf8"),
@@ -62,9 +64,20 @@ test("ships the complete six-part questionnaire and removes starter assets", asy
     assert.match(content, new RegExp(heading));
   }
 
+  const primaryBlock = content.match(
+    /export const primaryQuestions:[\s\S]*?\n\];/,
+  );
+  assert.ok(primaryBlock, "primary questions must be declared separately");
+  assert.equal(
+    [...primaryBlock[0].matchAll(/\n\s+id:\s+"[^"]+"/g)].length,
+    10,
+  );
   assert.match(content, /Ориентир из обсуждения: 15%/);
   assert.match(`${content}\n${form}`, /нет данных/i);
   assert.match(`${content}\n${form}`, /предоставим позже/i);
+  assert.match(form, /submitState === "success"/);
+  assert.match(form, /<DeepDiveForm\b/);
+  assert.match(form, /Необязательно/);
   assert.match(page, /<BriefForm \/>/);
   assert.match(layout, /lang="ru"/);
   assert.doesNotMatch(page, /_sites-preview|SkeletonPreview|codex-preview/);
