@@ -14,10 +14,10 @@ const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 test("derives and validates the GitHub Pages base path", () => {
   assert.equal(
     resolvePagesBasePath({
-      githubRepository: "fintore/aram-ai-qualifier",
+      githubRepository: "fintore/ai-qualifier",
       fallbackRepositoryName: "ignored",
     }),
-    "/aram-ai-qualifier/",
+    "/ai-qualifier/",
   );
 
   assert.equal(
@@ -46,6 +46,20 @@ test("derives and validates the GitHub Pages base path", () => {
   );
 });
 
+test("keeps the published project identity neutral", async () => {
+  const [packageText, readme, state] = await Promise.all([
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../README.md", import.meta.url), "utf8"),
+    readFile(new URL("../STATE.md", import.meta.url), "utf8"),
+  ]);
+
+  const packageJson = JSON.parse(packageText);
+  assert.equal(packageJson.name, "ai-qualifier-brief");
+  assert.match(readme, /alex-fintore\.github\.io\/ai-qualifier\//i);
+  assert.match(state, /alex-fintore\.github\.io\/ai-qualifier\//i);
+  assert.doesNotMatch(`${packageText}\n${readme}\n${state}`, /aram-ai-qualifier/i);
+});
+
 test("exports a hydratable vinext page with subpath-safe assets", async () => {
   const outputDirectory = path.join(
     projectRoot,
@@ -57,10 +71,10 @@ test("exports a hydratable vinext page with subpath-safe assets", async () => {
     const result = await exportGitHubPages({
       projectRoot,
       outputDirectory,
-      basePath: "/aram-ai-qualifier/",
+      basePath: "/ai-qualifier/",
     });
 
-    assert.equal(result.basePath, "/aram-ai-qualifier/");
+    assert.equal(result.basePath, "/ai-qualifier/");
     await Promise.all([
       access(path.join(outputDirectory, ".nojekyll")),
       access(path.join(outputDirectory, "404.html")),
@@ -75,8 +89,8 @@ test("exports a hydratable vinext page with subpath-safe assets", async () => {
 
     assert.equal(fallbackHtml, html);
     assert.match(html, /self\.__VINEXT_RSC_DONE__=true/);
-    assert.match(html, /import\("\/aram-ai-qualifier\/assets\//);
-    assert.match(html, /href="\/aram-ai-qualifier\/assets\//);
+    assert.match(html, /import\("\/ai-qualifier\/assets\//);
+    assert.match(html, /href="\/ai-qualifier\/assets\//);
     assert.doesNotMatch(html, /(?<![A-Za-z0-9])\/assets\//);
 
     const manifest = JSON.parse(manifestText);
@@ -90,7 +104,7 @@ test("exports a hydratable vinext page with subpath-safe assets", async () => {
     );
     assert.match(
       browserEntrySource,
-      /return["'`]\/aram-ai-qualifier\/["'`]\+/,
+      /return["'`]\/ai-qualifier\/["'`]\+/,
     );
     assert.doesNotMatch(
       browserEntrySource,
@@ -98,7 +112,7 @@ test("exports a hydratable vinext page with subpath-safe assets", async () => {
     );
 
     for (const assetUrl of html.matchAll(
-      /\/aram-ai-qualifier\/(assets\/[A-Za-z0-9_./-]+)/g,
+      /\/ai-qualifier\/(assets\/[A-Za-z0-9_./-]+)/g,
     )) {
       await access(path.join(outputDirectory, assetUrl[1]));
     }

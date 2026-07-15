@@ -71,13 +71,11 @@ function SiteHeader() {
 
 function PrimaryQuestion({
   field,
-  index,
   value,
   error,
   onChange,
 }: {
   field: BriefField;
-  index: number;
   value: string;
   error: boolean;
   onChange: (value: string) => void;
@@ -90,13 +88,14 @@ function PrimaryQuestion({
       className={`quick-question${isShort ? " quick-question--short" : ""}`}
       data-brief-question="primary"
     >
-      <div className="quick-question__number" aria-hidden="true">
-        {String(index + 1).padStart(2, "0")}
-      </div>
       <div className="quick-question__body">
         <label className="quick-question__label" htmlFor={field.id}>
           {field.label}
-          {field.required ? <span className="question-tag">обязательно</span> : null}
+          {field.required ? (
+            <span className="question-required" aria-hidden="true">
+              *
+            </span>
+          ) : null}
         </label>
         {isShort ? (
           <input
@@ -112,6 +111,7 @@ function PrimaryQuestion({
                   ? "email"
                   : "off"
             }
+            aria-required={field.required || undefined}
             aria-describedby={error ? errorId : undefined}
             aria-invalid={error || undefined}
             onChange={(event) => onChange(event.target.value)}
@@ -124,6 +124,7 @@ function PrimaryQuestion({
             value={value}
             placeholder={field.placeholder}
             rows={2}
+            aria-required={field.required || undefined}
             aria-describedby={error ? errorId : undefined}
             aria-invalid={error || undefined}
             onChange={(event) => onChange(event.target.value)}
@@ -682,11 +683,10 @@ export function BriefForm() {
           ) : null}
 
           <div className="quick-question-grid">
-            {primaryQuestions.map((question, index) => (
+            {primaryQuestions.map((question) => (
               <PrimaryQuestion
                 key={question.id}
                 field={question}
-                index={index}
                 value={draft.answers[question.id]}
                 error={errors.includes(question.id)}
                 onChange={(value) => setAnswer(question.id, value)}

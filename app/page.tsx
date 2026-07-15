@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { BriefForm } from "./BriefForm";
 
 export const metadata: Metadata = {
-  title: "AI-квалификатор входящих лидов",
+  title: "Короткий бриф — AI-квалификатор",
   description:
-    "Бриф для оценки сценария, интеграций, экономики и требований к пилотному запуску голосового помощника.",
+    "Короткий бриф для первичной оценки сценария AI-квалификатора и пилотного запуска.",
 };
 
 export default function Home() {

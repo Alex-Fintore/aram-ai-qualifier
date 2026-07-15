@@ -33,7 +33,7 @@ test("server-renders the customer brief rather than the starter", async () => {
 
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ru"/i);
-  assert.match(html, /<title>AI-квалификатор входящих лидов<\/title>/i);
+  assert.match(html, /<title>Короткий бриф — AI-квалификатор<\/title>/i);
   assert.match(html, /<link[^>]+rel="icon"[^>]+data:image\/svg\+xml/i);
   assert.match(html, /Короткий бриф/i);
   assert.doesNotMatch(
@@ -43,6 +43,10 @@ test("server-renders the customer brief rather than the starter", async () => {
   assert.doesNotMatch(html, /class="quick-form__header"/i);
   assert.doesNotMatch(html, /можно пропустить/i);
   assert.doesNotMatch(html, /class="quick-question__prompt"/i);
+  assert.doesNotMatch(html, /class="quick-question__number"/i);
+  assert.doesNotMatch(html, /class="question-tag"/i);
+  assert.match(html, /class="question-required"/i);
+  assert.match(html, /aria-required="true"/i);
   assert.doesNotMatch(html, /<h[1-6][^>]*>Перед отправкой/i);
   assert.equal((html.match(/type="checkbox"/gi) ?? []).length, 1);
   assert.match(html, /нет персональных данных клиентов/i);
