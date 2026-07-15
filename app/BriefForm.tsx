@@ -47,7 +47,7 @@ async function postPayload(payload: Record<string, string>) {
   if (response.status === 422) {
     throw new Error("Проверьте контактные данные и попробуйте ещё раз.");
   }
-  throw new Error("Не удалось отправить ответы. Черновик не потерян.");
+  throw new Error("Не удалось отправить. Попробуйте ещё раз.");
 }
 
 function SiteHeader() {
@@ -58,8 +58,7 @@ function SiteHeader() {
           AI
         </span>
         <span className="brand__text">
-          <strong>Квалификатор</strong>
-          <small>Первичная оценка</small>
+          <strong>AI-квалификатор</strong>
         </span>
       </a>
       <span className="confidentiality">
@@ -67,20 +66,6 @@ function SiteHeader() {
         Конфиденциально
       </span>
     </header>
-  );
-}
-
-function SaveStatus({ savedAt }: { savedAt: string | null }) {
-  return (
-    <span className="quick-save" aria-live="polite">
-      <span aria-hidden="true">✓</span>
-      {savedAt
-        ? `Черновик сохранён в ${new Date(savedAt).toLocaleTimeString("ru-RU", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}`
-        : "Черновик сохраняется на этом устройстве"}
-    </span>
   );
 }
 
@@ -97,9 +82,7 @@ function PrimaryQuestion({
   error: boolean;
   onChange: (value: string) => void;
 }) {
-  const promptId = `${field.id}-prompt`;
   const errorId = `${field.id}-error`;
-  const describedBy = error ? `${promptId} ${errorId}` : promptId;
   const isShort = field.kind === "short";
 
   return (
@@ -113,13 +96,8 @@ function PrimaryQuestion({
       <div className="quick-question__body">
         <label className="quick-question__label" htmlFor={field.id}>
           {field.label}
-          <span className={field.required ? "question-tag" : "question-tag question-tag--optional"}>
-            {field.required ? "обязательно" : "можно пропустить"}
-          </span>
+          {field.required ? <span className="question-tag">обязательно</span> : null}
         </label>
-        <p id={promptId} className="quick-question__prompt">
-          {field.prompt}
-        </p>
         {isShort ? (
           <input
             id={field.id}
@@ -134,7 +112,7 @@ function PrimaryQuestion({
                   ? "email"
                   : "off"
             }
-            aria-describedby={describedBy}
+            aria-describedby={error ? errorId : undefined}
             aria-invalid={error || undefined}
             onChange={(event) => onChange(event.target.value)}
           />
@@ -145,8 +123,8 @@ function PrimaryQuestion({
             className="textarea textarea--quick"
             value={value}
             placeholder={field.placeholder}
-            rows={3}
-            aria-describedby={describedBy}
+            rows={2}
+            aria-describedby={error ? errorId : undefined}
             aria-invalid={error || undefined}
             onChange={(event) => onChange(event.target.value)}
           />
@@ -368,7 +346,6 @@ function DeepDiveForm({ primary }: { primary: PrimaryBriefDraft }) {
     createDeepDraftFromPrimary(primary),
   );
   const [hydrated, setHydrated] = useState(false);
-  const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [submitMessage, setSubmitMessage] = useState("");
 
@@ -382,7 +359,6 @@ function DeepDiveForm({ primary }: { primary: PrimaryBriefDraft }) {
 
       if (restored && belongsToCurrentBrief) {
         setDraft(restored);
-        setLastSaved(restored.savedAt);
       }
       setHydrated(true);
     }, 0);
@@ -394,7 +370,6 @@ function DeepDiveForm({ primary }: { primary: PrimaryBriefDraft }) {
     const timer = window.setTimeout(() => {
       const savedAt = new Date().toISOString();
       window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, savedAt }));
-      setLastSaved(savedAt);
     }, 450);
     return () => window.clearTimeout(timer);
   }, [draft, hydrated, submitState]);
@@ -443,7 +418,7 @@ function DeepDiveForm({ primary }: { primary: PrimaryBriefDraft }) {
 
     if (!endpointReady) {
       setSubmitState("error");
-      setSubmitMessage("Канал приёма ответов ещё подключается. Черновик сохранён.");
+      setSubmitMessage("Отправка временно недоступна. Попробуйте позже.");
       return;
     }
 
@@ -531,7 +506,6 @@ function DeepDiveForm({ primary }: { primary: PrimaryBriefDraft }) {
         ) : null}
 
         <footer className="deep-form__footer">
-          <SaveStatus savedAt={lastSaved} />
           <button
             type="submit"
             className="button"
@@ -550,7 +524,6 @@ export function BriefForm() {
     createInitialPrimaryDraft(),
   );
   const [hydrated, setHydrated] = useState(false);
-  const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [submitMessage, setSubmitMessage] = useState("");
@@ -563,7 +536,6 @@ export function BriefForm() {
       );
       if (restored) {
         setDraft(restored);
-        setLastSaved(restored.savedAt);
       }
       setHydrated(true);
     }, 0);
@@ -578,7 +550,6 @@ export function BriefForm() {
         PRIMARY_DRAFT_KEY,
         JSON.stringify({ ...draft, savedAt }),
       );
-      setLastSaved(savedAt);
     }, 450);
     return () => window.clearTimeout(timer);
   }, [draft, hydrated, submitState]);
@@ -607,13 +578,13 @@ export function BriefForm() {
       !draft.confirmations.senderConsent
     ) {
       setSubmitState("error");
-      setSubmitMessage("Подтвердите два пункта перед отправкой.");
+      setSubmitMessage("Подтвердите согласие перед отправкой.");
       return;
     }
 
     if (!endpointReady) {
       setSubmitState("error");
-      setSubmitMessage("Канал приёма ответов ещё подключается. Черновик сохранён.");
+      setSubmitMessage("Отправка временно недоступна. Попробуйте позже.");
       return;
     }
 
@@ -626,7 +597,7 @@ export function BriefForm() {
     } catch (error) {
       setSubmitState("error");
       setSubmitMessage(
-        error instanceof Error ? error.message : "Не удалось отправить ответы.",
+        error instanceof Error ? error.message : "Не удалось отправить. Попробуйте ещё раз.",
       );
     }
   };
@@ -683,10 +654,6 @@ export function BriefForm() {
             <DeepDiveForm primary={draft} />
           )}
         </main>
-        <footer className="site-footer">
-          <span>AI-квалификатор входящих лидов</span>
-          <span>Первичные ответы уже сохранены</span>
-        </footer>
       </div>
     );
   }
@@ -697,38 +664,17 @@ export function BriefForm() {
       <main>
         <section className="quick-hero" aria-labelledby="brief-title">
           <div className="quick-hero__copy">
-            <span className="eyebrow">Первичное знакомство</span>
             <h1 id="brief-title">
               Короткий бриф
-              <span>для оценки AI-квалификатора</span>
             </h1>
             <p>
-              Ответьте на главное — этого хватит, чтобы мы подготовили первый
-              разбор задачи и ориентир по пилоту. Точные цифры не обязательны.
+              Коротко опишите текущий процесс и ожидаемый результат — этого
+              достаточно для первичной оценки.
             </p>
-          </div>
-          <div className="quick-hero__meta" aria-label="Информация о заполнении">
-            <div>
-              <strong>5–7 минут</strong>
-              <span>на всю форму</span>
-            </div>
-            <div>
-              <strong>10 вопросов</strong>
-              <span>на одной странице</span>
-            </div>
-            <p>Если ответа пока нет, оставьте необязательное поле пустым.</p>
           </div>
         </section>
 
         <form className="quick-form" onSubmit={submitPrimary} noValidate>
-          <header className="quick-form__header">
-            <div>
-              <span className="eyebrow">Основные вопросы</span>
-              <h2>Расскажите о вашей задаче</h2>
-            </div>
-            <SaveStatus savedAt={lastSaved} />
-          </header>
-
           {errors.length ? (
             <div className="error-summary" role="alert">
               Заполните отмеченные вопросы — можно ответить буквально одной фразой.
@@ -748,50 +694,28 @@ export function BriefForm() {
             ))}
           </div>
 
-          <section className="quick-confirmations" aria-labelledby="confirm-title">
-            <div>
-              <span className="quick-confirmations__mark" aria-hidden="true">!</span>
-              <div>
-                <h3 id="confirm-title">Перед отправкой</h3>
-                <p>Чувствительные материалы мы запросим отдельно через безопасный канал.</p>
-              </div>
-            </div>
+          <section className="quick-confirmations" aria-label="Согласие перед отправкой">
             <label className="confirmation-check">
               <input
                 type="checkbox"
-                checked={draft.confirmations.noClientPersonalData}
-                onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  setDraft((current) => ({
-                    ...current,
-                    confirmations: {
-                      ...current.confirmations,
-                      noClientPersonalData: event.target.checked,
-                    },
-                  }))
+                checked={
+                  draft.confirmations.noClientPersonalData &&
+                  draft.confirmations.senderConsent
                 }
-              />
-              <span>
-                В ответах нет персональных данных клиентов, записей разговоров,
-                паролей и ключей доступа.
-              </span>
-            </label>
-            <label className="confirmation-check">
-              <input
-                type="checkbox"
-                checked={draft.confirmations.senderConsent}
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setDraft((current) => ({
                     ...current,
                     confirmations: {
-                      ...current.confirmations,
+                      noClientPersonalData: event.target.checked,
                       senderConsent: event.target.checked,
                     },
                   }))
                 }
               />
               <span>
-                Разрешаю использовать мои контактные данные для подготовки оценки
-                и связи по этому проекту.
+                В ответах нет персональных данных клиентов, записей разговоров,
+                паролей или ключей доступа; мои контакты можно использовать для
+                подготовки оценки.
               </span>
             </label>
           </section>
@@ -800,8 +724,7 @@ export function BriefForm() {
             <div className="channel-note">
               <span aria-hidden="true">i</span>
               <p>
-                <strong>Канал приёма ответов подключается.</strong> Черновик сохранится
-                на этом устройстве.
+                Отправка временно недоступна. Попробуйте позже.
               </p>
             </div>
           ) : null}
@@ -813,10 +736,6 @@ export function BriefForm() {
           ) : null}
 
           <footer className="quick-form__footer">
-            <div>
-              <strong>После отправки</strong>
-              <span>можно будет необязательно добавить детали для более точной оценки</span>
-            </div>
             <button
               type="submit"
               className="button button--submit-primary"
@@ -826,15 +745,11 @@ export function BriefForm() {
                 ? "Отправляем…"
                 : endpointReady
                   ? "Отправить на первичную оценку"
-                  : "Отправка подключается"}
+                  : "Отправка недоступна"}
             </button>
           </footer>
         </form>
       </main>
-      <footer className="site-footer">
-        <span>AI-квалификатор входящих лидов</span>
-        <span>Первичный разбор без обязательного длинного брифа</span>
-      </footer>
     </div>
   );
 }

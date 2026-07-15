@@ -36,13 +36,17 @@ test("server-renders the customer brief rather than the starter", async () => {
   assert.match(html, /<title>AI-квалификатор входящих лидов<\/title>/i);
   assert.match(html, /<link[^>]+rel="icon"[^>]+data:image\/svg\+xml/i);
   assert.match(html, /Короткий бриф/i);
-  assert.match(html, /10 вопросов/i);
-  assert.match(html, /Основные вопросы/i);
-  assert.match(html, /Расскажите о вашей задаче/i);
-  assert.doesNotMatch(html, /Без таблиц, ползунков и длинных инструкций/i);
-  assert.match(html, /Черновик сохраняется на этом устройстве/i);
-  assert.match(html, /Чувствительные материалы мы запросим отдельно/i);
-  assert.match(html, /Отправ(?:ить на первичную оценку|ка подключается)/i);
+  assert.doesNotMatch(
+    html,
+    /5[–-]7 минут|10 вопросов|на одной странице|Черновик сохранён в|Черновик сохраняется на этом устройстве|После отправки/i,
+  );
+  assert.doesNotMatch(html, /class="quick-form__header"/i);
+  assert.doesNotMatch(html, /можно пропустить/i);
+  assert.doesNotMatch(html, /class="quick-question__prompt"/i);
+  assert.doesNotMatch(html, /<h[1-6][^>]*>Перед отправкой/i);
+  assert.equal((html.match(/type="checkbox"/gi) ?? []).length, 1);
+  assert.match(html, /нет персональных данных клиентов/i);
+  assert.match(html, /Отправ(?:ить на первичную оценку|ка недоступна)/i);
   assert.doesNotMatch(html, /Критерии успешности/i);
   assert.doesNotMatch(html, developmentPreviewMeta);
   assert.doesNotMatch(html, /Codex is working|Your site is taking shape/i);
