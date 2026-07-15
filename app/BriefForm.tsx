@@ -723,8 +723,8 @@ export function BriefForm() {
         <form className="quick-form" onSubmit={submitPrimary} noValidate>
           <header className="quick-form__header">
             <div>
-              <span className="eyebrow">Расскажите главное</span>
-              <h2>Без таблиц, ползунков и длинных инструкций</h2>
+              <span className="eyebrow">Основные вопросы</span>
+              <h2>Расскажите о вашей задаче</h2>
             </div>
             <SaveStatus savedAt={lastSaved} />
           </header>

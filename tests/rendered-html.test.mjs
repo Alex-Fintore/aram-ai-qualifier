@@ -37,6 +37,9 @@ test("server-renders the customer brief rather than the starter", async () => {
   assert.match(html, /<link[^>]+rel="icon"[^>]+data:image\/svg\+xml/i);
   assert.match(html, /Короткий бриф/i);
   assert.match(html, /10 вопросов/i);
+  assert.match(html, /Основные вопросы/i);
+  assert.match(html, /Расскажите о вашей задаче/i);
+  assert.doesNotMatch(html, /Без таблиц, ползунков и длинных инструкций/i);
   assert.match(html, /Черновик сохраняется на этом устройстве/i);
   assert.match(html, /Чувствительные материалы мы запросим отдельно/i);
   assert.match(html, /Отправ(?:ить на первичную оценку|ка подключается)/i);
