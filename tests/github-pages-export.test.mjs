@@ -119,4 +119,5 @@ test("workflow passes the public receiver endpoint into the Pages build", async 
   );
   assert.match(workflow, /actions\/upload-pages-artifact@v4/);
   assert.match(workflow, /actions\/deploy-pages@v4/);
+  assert.doesNotMatch(workflow, /include-hidden-files/);
 });
