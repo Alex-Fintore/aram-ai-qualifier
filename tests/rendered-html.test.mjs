@@ -34,6 +34,7 @@ test("server-renders the customer brief rather than the starter", async () => {
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ru"/i);
   assert.match(html, /<title>AI-квалификатор входящих лидов<\/title>/i);
+  assert.match(html, /<link[^>]+rel="icon"[^>]+data:image\/svg\+xml/i);
   assert.match(html, /Короткий бриф/i);
   assert.match(html, /10 вопросов/i);
   assert.match(html, /Черновик сохраняется на этом устройстве/i);
